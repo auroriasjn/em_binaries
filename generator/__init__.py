@@ -1,0 +1,1 @@
+from .cosmic_synthesizer import COSMICSynthesizer
