@@ -1,6 +1,7 @@
 import emcee
 import numpy as np
 import pandas as pd
+import corner
 import matplotlib.pyplot as plt
 
 from typing import Tuple
@@ -98,8 +99,7 @@ class MISTFitter:
         return 0.0
 
     # ----- 2-D CMD likelihood -----
-    def ln_likelihood(self, theta):
-        age, feh, distance, AV, dM, dC = theta
+    def _compute_iso_colors(self, age, feh, distance, AV):
         logage = np.log10(age)
 
         # base + per-point AV response
@@ -111,10 +111,14 @@ class MISTFitter:
         iso_BP = BP0 + DM + dBP * AV
         iso_RP = RP0 + DM + dRP * AV
 
-        iso_color = iso_BP - iso_RP
-        iso_mag   = iso_G
+        return iso_G, iso_BP, iso_RP
+    
+    def _compute_residuals(self, theta):
+        age, feh, distance, AV, dM, dC = theta
+        iso_G, iso_BP, iso_RP = self._compute_iso_colors(age, feh, distance, AV)
 
-        # observations (apply tiny global shifts to absorb ZP/systematics)
+        iso_color, iso_mag = iso_BP - iso_RP, iso_G
+
         BP, RP, G = self.BP, self.RP, self.G
         color_obs = (BP - RP) - dC
         mag_obs   = G - dM
@@ -142,9 +146,15 @@ class MISTFitter:
         rC = color_obs - mC     # negative => bluer than isochrone
         rM = mag_obs   - mM     # negative => brighter than isochrone
 
+        return rC, rM, sC, sM
+
+    def ln_likelihood(self, theta):
+        # Compute isochrone points
+        rC, rM, sC, sM = self._compute_residuals(theta)
+
         # asymmetric weights (tune lambdas)
-        λC = 1.7
-        λM = 1.4
+        λC = 1.8
+        λM = 1.5
         wC = 1.0 + λC * (rC < 0)
         wM = 1.0 + λM * (rM < 0)
 
@@ -179,19 +189,58 @@ class MISTFitter:
         
         sampler.reset()
         sampler.run_mcmc(p0, n_steps, progress=progress)
+
+        samples = sampler.get_chain(flat=True)
+
+        # Save median model
+        median_params = np.median(samples, axis=0)
+        self.median_model = median_params
+
+        # Save best model
+        chi2_vals = np.array([self.ln_likelihood(theta) for theta in samples])
+        self.chi2_vals = chi2_vals
+        self.samples   = samples
+
+        idx_best = np.argmin(chi2_vals)
+        self.best_model = samples[idx_best]
+        self.best_chi2  = chi2_vals[idx_best]
+
         return sampler
+    
+    def get_median_model(self):
+        if self.median_model is None:
+            raise RuntimeError("Error: must run sample_cluster() before getting median model.")
+        return self.median_model
 
-    # ----- viz -----
-    def plot_best_fit_isochrone(self, theta, show: bool=True):
+    def get_best_model(self):
+        if self.best_model is None:
+            raise RuntimeError("Error: must run sample_cluster() before getting best model.")
+        return self.best_model
+    
+    def get_samples(self):
+        if self.samples is None:
+            raise RuntimeError("Error: must run sample_cluster() before getting samples.")
+        return self.samples
+
+    def get_good_models(self, chi2_cutoff, max_models: int=200, seed: int=42):
+        chi2 = np.asarray(self.chi2_vals)
+        samples = self.samples
+
+        ok = np.isfinite(chi2) & (chi2 <= chi2_cutoff)
+        good = samples[ok]
+
+        # optional thinning
+        if len(good) > max_models:
+            rng = np.random.default_rng(seed)
+            idx = rng.choice(len(good), size=max_models, replace=False)
+            good = good[idx]
+
+        return good
+
+    # --- Visualizations ---
+    def plot_isochrone(self, theta, show: bool=True):
         age, feh, distance, AV, dM, dC = theta
-
-        logage = np.log10(age)
-        G0, BP0, RP0, dG, dBP, dRP = self._cache_iso_base(logage, feh)
-        DM = distance_modulus(distance)
-        
-        iso_G  = G0  + DM + dG  * AV
-        iso_BP = BP0 + DM + dBP * AV
-        iso_RP = RP0 + DM + dRP * AV
+        iso_G, iso_BP, iso_RP = self._compute_iso_colors(age, feh, distance, AV)
 
         fig, ax = plt.subplots(figsize=(8, 10))
         ax.scatter(
@@ -212,3 +261,120 @@ class MISTFitter:
             plt.show()
             
         return fig, ax
+    
+    def plot_good_isochrones(
+        self,
+        chi2_cutoff,
+        max_curves=50,
+        seed=42,
+        show=True
+    ):
+        """
+        Overplot all isochrones with chi2 <= chi2_cutoff.
+        """
+        good_models = self.get_good_models(chi2_cutoff, max_models=max_curves, seed=seed)
+
+        fig, ax = plt.subplots(figsize=(8,10))
+
+        # scatter data
+        ax.scatter(
+            self.data['phot_bp_rp'], 
+            self.data['G_mag'], 
+            s=2, c='blue', alpha=0.4
+        )
+
+        # plot each good model
+        for theta in good_models:
+            age, feh, distance, AV, dM, dC = theta
+            iso_G, iso_BP, iso_RP = self._compute_iso_colors(age, feh, distance, AV)
+            
+            ax.plot(
+                iso_BP - iso_RP + dC,
+                iso_G + dM,
+                color="red", alpha=0.05, lw=1
+            )
+
+        # highlight best model
+        age, feh, distance, AV, dM, dC = self.best_model
+        iso_G, iso_BP, iso_RP = self._compute_iso_colors(age, feh, distance, AV)
+
+        ax.plot(
+            iso_BP - iso_RP + dC,
+            iso_G + dM,
+            color="black", lw=2.5, label=f"Best Model ($\chi^2={self.best_chi2:.1f}$)"
+        )
+
+        ax.set_xlabel("BP - RP")
+        ax.set_ylabel("G")
+        ax.invert_yaxis()
+        ax.legend()
+
+        if show:
+            plt.show()
+
+        return fig, ax
+    
+    def plot_residuals(self, theta, show: bool=True):
+        rC, rM, _, _ = self._compute_residuals(theta)
+
+        fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(14, 6))
+
+        ax1.scatter(
+            self.data['phot_bp_rp'] - (theta[5]),  # dC
+            rC,
+            s=2,
+            c='green',
+            alpha=0.5
+        )
+        ax1.axhline(0, color='black', ls='--')
+        ax1.set_xlabel('BP - RP Color Index (corrected)')
+        ax1.set_ylabel('Color Residual (Observed - Model)')
+        ax1.set_title('Color Residuals')
+
+        ax2.scatter(
+            self.data['G_mag'] - (theta[4]),  # dM
+            rM,
+            s=2,
+            c='purple',
+            alpha=0.5
+        )
+        ax2.axhline(0, color='black', ls='--')
+        ax2.set_xlabel('G Mean Magnitude (corrected)')
+        ax2.set_ylabel('Magnitude Residual (Observed - Model)')
+        ax2.set_title('Magnitude Residuals')
+
+        if show:
+            plt.show()
+
+        return fig, (ax1, ax2)
+
+    def plot_corner(self, sampler, discard: int = 200, thin: int = 100, flat: bool = True):
+        if self.best_model is None:
+            raise RuntimeError("Error: must run sample_cluster() before plotting corner.")
+
+        # Get flattened MCMC samples
+        samples = sampler.get_chain(discard=discard, thin=thin, flat=flat)
+
+        # Parameter labels and units
+        labels = [
+            r"$\mathrm{Age\ [yr]}$",
+            r"$\mathrm{[Fe/H]}$",
+            r"$\mathrm{Distance\ [pc]}$",
+            r"$A_V$",
+            r"$\Delta M$",
+            r"$\Delta C$"
+        ]
+
+        # Generate the corner plot
+        figure = corner.corner(
+            samples,
+            labels=labels,
+            show_titles=True,
+            quantiles=[0.16, 0.5, 0.84],
+            title_fmt=".3f",
+            title_kwargs={"fontsize": 12},
+            truths=self.best_model
+        )
+
+        plt.show()
+        return figure
