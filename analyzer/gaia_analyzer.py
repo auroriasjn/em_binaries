@@ -69,7 +69,7 @@ class GaiaAnalyzer:
         ax.set_xlabel('BP - RP Color Index')
         ax.set_ylabel('G Mean Magnitude')
         ax.invert_yaxis()
-        ax.set_title('Hertzsprung-Russell Diagram')
+        ax.set_title('CMD Diagram')
 
         if show:
             plt.show()
