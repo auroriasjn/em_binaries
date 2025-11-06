@@ -1,36 +1,177 @@
-# https://isochrones.readthedocs.io/en/latest/quickstart.html
-# https://github.com/timothydmorton/isochrones/tree/master
-
-import pandas as pd
 import emcee
-
-# We are leveraging the isochrone package here
-from isochrones.catalog import StarCatalog
-from isochrones.cluster import StarClusterModel
+import numpy as np
+import pandas as pd
+import matplotlib.pyplot as plt
+from typing import Tuple
+from functools import lru_cache
+from scipy.spatial import cKDTree
 from isochrones import get_ichrone
 
 class MISTFitter:
     def __init__(
         self,
         data: pd.DataFrame,
-        age_range: tuple[float, float] = (6.0, 10.2),
-        feh_range: tuple[float, float] = (-2.0, 0.5),
+        # Pleiades-ish priors
+        age_range: Tuple[float, float] = (70e6, 160e6),
+        feh_range: Tuple[float, float] = (-0.2, 0.2),
+        AV_range: Tuple[float, float] = (0.0, 0.6),
+        # Nuisance shift parameters
+        dM_range: Tuple[float, float] = (-0.15, 0.15),
+        dC_range: Tuple[float, float] = (-0.08, 0.08),
     ):
-        # Load data
-        self.data = data
+        """
+        Fit Pleiades-like cluster using Gaia G/BP/RP.
+        Expects columns: G_mag, BP_mag, RP_mag; optional *_mag_unc, distance, distance_unc.
+        """
+        self.data = data.reset_index(drop=True)
 
         self.age_range = age_range
         self.feh_range = feh_range
+        self.AV_range = AV_range
+        self.dM_range = dM_range
+        self.dC_range = dC_range
 
-        # Initialize MIST isochrone model
-        self.mist = get_ichrone('mist')
+        # distance prior: use data if present, else Pleiades default window
+        self.distance_range = self._compute_distance_range(default=(110.0, 170.0))  # pc
 
-    def _reformat_data(self, data: pd.DataFrame):
-        catalog = StarCatalog(data, no_uncs=True)
-        return catalog
+        self.mist = get_ichrone("mist", bands=["G", "BP", "RP"])
 
-    def fit_isochrone(self, data):
-        # We know the Pleiades has an age of 75-140 Myr so we can just cheat here
-        model = StarClusterModel(data)
+        # cache median uncertainty fallbacks
+        self._sG_med  = np.nanmedian(self.data.get("G_mag_unc",  np.array([0.03])))
+        self._sBP_med = np.nanmedian(self.data.get("BP_mag_unc", np.array([0.03])))
+        self._sRP_med = np.nanmedian(self.data.get("RP_mag_unc", np.array([0.03])))
 
-    # Could potentially invoke https://github.com/mncavieres/mistfit
+    def _compute_distance_range(self, default=(110.0, 170.0)):
+        if "distance" not in self.data.columns:
+            return default
+        d = self.data["distance"].to_numpy()
+        dmin, dmax = np.nanmin(d), np.nanmax(d)
+        if "distance_unc" in self.data.columns:
+            unc = np.nanmedian(self.data["distance_unc"])
+            if np.isfinite(unc):
+                dmin = max(dmin - 3*unc, 10.0)
+                dmax = dmax + 3*unc
+        # clip to a reasonable Pleiades envelope if crazy values exist
+        dmin = max(dmin,  80.0)
+        dmax = min(dmax, 220.0)
+        if dmin >= dmax:  # fallback
+            return default
+        return (dmin, dmax)
+
+    # ----- caching: base isochrone at 10 pc, AV=0 and per-point extinction slopes -----
+    @lru_cache(maxsize=128)
+    def _cache_iso_base(self, logage: float, feh: float, dAV: float = 0.05):
+        iso0 = self.mist.isochrone(logage, feh=feh, distance=10.0, AV=0.0)
+        isoA = self.mist.isochrone(logage, feh=feh, distance=10.0, AV=dAV)
+        G0  = iso0["G_mag"].to_numpy()
+        BP0 = iso0["BP_mag"].to_numpy()
+        RP0 = iso0["RP_mag"].to_numpy()
+        dG  = (isoA["G_mag"].to_numpy()  - G0)  / dAV
+        dBP = (isoA["BP_mag"].to_numpy() - BP0) / dAV
+        dRP = (isoA["RP_mag"].to_numpy() - RP0) / dAV
+        return G0, BP0, RP0, dG, dBP, dRP
+
+    # ----- priors -----
+    def ln_prior(self, theta):
+        age, feh, distance, AV, dM, dC = theta
+        if not (self.age_range[0]     < age      < self.age_range[1]):     return -np.inf
+        if not (self.feh_range[0]     < feh      < self.feh_range[1]):     return -np.inf
+        if not (self.distance_range[0] < distance < self.distance_range[1]): return -np.inf
+        if not (self.AV_range[0]      < AV       < self.AV_range[1]):      return -np.inf
+        if not (self.dM_range[0]      < dM       < self.dM_range[1]):      return -np.inf
+        if not (self.dC_range[0]      < dC       < self.dC_range[1]):      return -np.inf
+        return 0.0
+
+    # ----- 2-D CMD likelihood -----
+    def ln_likelihood(self, theta):
+        age, feh, distance, AV, dM, dC = theta
+        logage = np.log10(age)
+
+        # base + per-point AV response
+        G0, BP0, RP0, dG, dBP, dRP = self._cache_iso_base(logage, feh)
+
+        # distance modulus
+        DM = 5.0 * np.log10(distance / 10.0)
+
+        # apply distance + extinction
+        iso_G  = G0  + DM + dG  * AV
+        iso_BP = BP0 + DM + dBP * AV
+        iso_RP = RP0 + DM + dRP * AV
+
+        iso_color = iso_BP - iso_RP
+        iso_mag   = iso_G
+
+        # observations (apply tiny global shifts to absorb ZP/systematics)
+        BP = self.data["BP_mag"].to_numpy()
+        RP = self.data["RP_mag"].to_numpy()
+        G  = self.data["G_mag"].to_numpy()
+        color_obs = (BP - RP) - dC
+        mag_obs   = G - dM
+
+        # per-star uncertainties with safe fallbacks
+        sG  = np.nan_to_num(self.data.get("G_mag_unc",  np.full_like(G,  self._sG_med )).to_numpy(),  nan=self._sG_med)
+        sBP = np.nan_to_num(self.data.get("BP_mag_unc", np.full_like(BP, self._sBP_med)).to_numpy(),  nan=self._sBP_med)
+        sRP = np.nan_to_num(self.data.get("RP_mag_unc", np.full_like(RP, self._sRP_med)).to_numpy(),  nan=self._sRP_med)
+        sC  = np.sqrt(sBP**2 + sRP**2)
+        sM  = sG
+
+        # small floors to avoid over-weighting
+        sC = np.maximum(sC, 0.01)
+        sM = np.maximum(sM, 0.01)
+
+        # KD-tree in standardized space (use medians to avoid rebuilding tree per-star)
+        sC_med = np.median(sC)
+        sM_med = np.median(sM)
+        tree = cKDTree(np.column_stack([iso_color / sC_med, iso_mag / sM_med]))
+        idx = tree.query(np.column_stack([color_obs / sC_med, mag_obs / sM_med]), k=1)[1]
+
+        mC = iso_color[idx]
+        mM = iso_mag[idx]
+
+        chi2 = ((color_obs - mC) / sC)**2 + ((mag_obs - mM) / sM)**2
+        # optional trimming of obvious outliers/non-members:
+        # chi2 = np.clip(chi2, 0, 100)
+        return -0.5 * np.nansum(chi2)
+
+    def ln_posterior(self, theta):
+        lp = self.ln_prior(theta)
+        if not np.isfinite(lp):
+            return -np.inf
+        return lp + self.ln_likelihood(theta)
+
+    # ----- sampling -----
+    def sample_cluster(self, n_walkers=40, n_burn=600, n_steps=1500, seed=None, progress=True):
+        rng = np.random.default_rng(seed)
+        ndim = 6  # (age, feh, distance, AV, dM, dC)
+        p0 = np.array([
+            rng.uniform(*self.age_range, size=n_walkers),
+            rng.uniform(*self.feh_range, size=n_walkers),
+            rng.uniform(*self.distance_range, size=n_walkers),
+            rng.uniform(*self.AV_range, size=n_walkers),
+            rng.uniform(*self.dM_range, size=n_walkers),
+            rng.uniform(*self.dC_range, size=n_walkers),
+        ]).T
+        sampler = emcee.EnsembleSampler(n_walkers, ndim, self.ln_posterior)
+        p0, _, _ = sampler.run_mcmc(p0, n_burn, progress=progress)
+        sampler.reset()
+        sampler.run_mcmc(p0, n_steps, progress=progress)
+        return sampler
+
+    # ----- viz -----
+    def plot_best_fit_isochrone(self, theta):
+        age, feh, distance, AV, dM, dC = theta
+        logage = np.log10(age)
+        G0, BP0, RP0, dG, dBP, dRP = self._cache_iso_base(logage, feh)
+        DM = 5.0 * np.log10(distance / 10.0)
+        iso_G  = G0  + DM + dG  * AV
+        iso_BP = BP0 + DM + dBP * AV
+        iso_RP = RP0 + DM + dRP * AV
+        
+        plt.figure(figsize=(6,6))
+        plt.scatter(self.data["phot_bp_rp"], self.data["G_mag"], s=2, c="tab:blue", alpha=0.5, label="Cluster stars")
+        plt.plot(iso_BP - iso_RP + dC, iso_G + dM, color="red", lw=2, label="Best-fit MIST Isochrone")
+        plt.gca().invert_yaxis()
+        plt.xlabel("BP - RP")
+        plt.ylabel("G")
+        plt.legend()
+        plt.show()

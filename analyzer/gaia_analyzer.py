@@ -1,58 +1,67 @@
 import pandas as pd
 import numpy as np
-
 import matplotlib.pyplot as plt
 
-class GaiaAnalyzer:
+from typing import List
+
+class GaiaAnalyzer:    
     def __init__(
         self,
-        file_names: str | list[str] = ["clustercat.dat", "escapecat.dat"],
+        filename: str='gaia.csv'
     ):
-        self.file_names = file_names
+        self.filename = filename
+        self.data = pd.read_csv(self.filename)
 
-        # Open files
-        if isinstance(self.file_names, str):
-            self.file_names = [self.file_names]
+        # Initialize colors
+        self._init_params()
 
-        # Aggregate data from files
-        self.data = self._agg_files()
-        self._clean_data()
+        # Init Uncertainties
+        self._init_uncertainties()
 
-    def _agg_files(self) -> pd.DataFrame:
-        dfs = []
-        for file_name in self.file_names:
-            # Read manually and clean header
-            with open(file_name) as f:
-                header = f.readline().strip().lstrip("#").strip().split()
-            temp_data = pd.read_csv(file_name, delim_whitespace=True, names=header, comment="#", skiprows=1)
-            dfs.append(temp_data)
+    def _init_params(self):
+        if 'phot_bp_rp' not in self.data.columns:
+            self.data['phot_bp_rp'] = self.data['phot_bp_mean_mag'] - self.data['phot_rp_mean_mag']
+        
+        self.data = self.data.rename(columns={
+            'teff_gspphot': 'teff',
+            'logg_gspspec': 'logg',
+            'distance_gspphot': 'distance',
+            'phot_bp_mean_mag': 'BP_mag',
+            'phot_rp_mean_mag': 'RP_mag',
+            'phot_g_mean_mag': 'G_mag',
+        })
+        
+    def _init_uncertainties(self):
+        # Rename parallax
+        self.data = self.data.rename(columns={
+            'parallax_error': 'parallax_unc',
+        })
 
-        common_cols = set.intersection(*(set(df.columns) for df in dfs))
-        dfs = [df[list(common_cols)] for df in dfs]
+        # Calculate color errors if not present
+        for band in ('BP', 'RP', 'G'):
+            flux_col = f'phot_{band.lower()}_mean_flux'
+            flux_err_col = f'phot_{band.lower()}_mean_flux_error'
+            err_col = f'{band}_mag_unc'
 
-        data = pd.concat(dfs, ignore_index=True)
-        data.reset_index(drop=True, inplace=True)
+            if err_col not in self.data.columns and flux_col in self.data.columns and flux_err_col in self.data.columns:
+                self.data[err_col] = (2.5 / np.log(10)) * (self.data[flux_err_col] / self.data[flux_col])
 
-        return data
-    
-    def _clean_data(self) -> pd.DataFrame:
-        assert 'BpRp' in self.data.columns, "BpRp column not found in data."
-        assert 'G' in self.data.columns, "G column not found in data."
+        # Calculate uncertainties via upper and lower
+        if 'teff_gspphot_upper' in self.data.columns and 'teff_gspphot_lower' in self.data.columns:
+            self.data['teff_unc'] = 0.5 * (self.data['teff_gspphot_upper'] - self.data['teff_gspphot_lower'])
+        if 'logg_gspspec_upper' in self.data.columns and 'logg_gspspec_lower' in self.data.columns:
+            self.data['logg_unc'] = 0.5 * (self.data['logg_gspspec_upper'] - self.data['logg_gspspec_lower'])
+        if 'distance_gspphot_upper' in self.data.columns and 'distance_gspphot_lower' in self.data.columns:
+            self.data['distance_unc'] = 0.5 * (self.data['distance_gspphot_upper'] - self.data['distance_gspphot_lower'])
 
-        # Remove extraneous outlier values
-        self.data = self.data[
-            (self.data['BpRp'] != -99.99) & (self.data['G'] != -99.99)
-        ]
+    def get_data(self) -> pd.DataFrame:
         return self.data
 
-    def get_data(self):
-        return self.data
-    
     def plot_hr_diagram(self, show: bool=True):
         fig, ax = plt.subplots(figsize=(8, 10))
         ax.scatter(
-            self.data['BpRp'],
-            self.data['G'],
+            self.data['phot_bp_rp'],
+            self.data['G_mag'],
             s=1,
             c='blue',
             alpha=0.5
@@ -64,6 +73,6 @@ class GaiaAnalyzer:
 
         if show:
             plt.show()
-        
+            
         return fig, ax
         
