@@ -1,1 +1,1 @@
-from .cosmic_synthesizer import COSMICSynthesizer
+from .synthesizer import IsochroneSynthesizer
