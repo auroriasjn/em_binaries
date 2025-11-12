@@ -1,0 +1,36 @@
+# --- JetBrains / PyCharm ---
+.github/
+.idea/
+
+# --- Your project-specific folders ---
+chains/
+
+# --- Python cache directories ---
+__pycache__/
+*/__pycache__/
+**/__pycache__/
+
+# --- Python bytecode files ---
+*.pyc
+*.pyo
+*.pyd
+
+# --- Virtual environments ---
+venv/
+.env/
+*.egg-info/
+.eggs/
+
+# --- Jupyter checkpoints ---
+.ipynb_checkpoints/
+
+# --- macOS junk ---
+.DS_Store
+
+# --- Compiled / temporary files ---
+*.log
+*.tmp
+
+# --- Build directories ---
+build/
+dist/
