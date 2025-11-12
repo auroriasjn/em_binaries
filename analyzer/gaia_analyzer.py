@@ -18,6 +18,9 @@ class GaiaAnalyzer:
         # Init Uncertainties
         self._init_uncertainties()
 
+    def extract_source_ids(self) -> List[str]:
+        return self.data['source_id'].astype(str).tolist()
+
     def _init_params(self):
         if 'phot_bp_rp' not in self.data.columns:
             self.data['phot_bp_rp'] = self.data['phot_bp_mean_mag'] - self.data['phot_rp_mean_mag']

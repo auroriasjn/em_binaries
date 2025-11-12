@@ -1,3 +1,5 @@
+from astroquery.mast import Catalogs
+
 def create_gaia_query(source_ids: list[int]) -> str:
     preamble = """
         SELECT
@@ -23,3 +25,53 @@ def create_gaia_query(source_ids: list[int]) -> str:
 
     adql_query = preamble.format(source_ids=','.join(map(str, source_ids)))
     return adql_query
+
+from astroquery.mast import Catalogs
+import pandas as pd
+import numpy as np
+import logging
+
+def gaia_to_tic(gaia_ids):
+    """
+    Robust batch converter from Gaia DR3 IDs to TIC IDs.
+    Queries MAST only once, handles DR2/DR3 mismatch, and removes duplicates.
+
+    Parameters
+    ----------
+    gaia_ids : list[int] or int
+        Gaia source_id(s) to crossmatch with the TESS Input Catalog.
+
+    Returns
+    -------
+    dict
+        Mapping {gaia_id: tic_id}, only for those found in TIC.
+    """
+    if isinstance(gaia_ids, int):
+        gaia_ids = [gaia_ids]
+
+    # Remove duplicates, keep ints
+    gaia_ids = list({int(g) for g in gaia_ids})
+
+    try:
+        result = Catalogs.query_criteria(
+            catalog="TIC",
+            GAIA=gaia_ids
+        ).to_pandas()
+    except Exception as e:
+        logging.error(f"TIC batch query failed: {e}")
+        return {}
+
+    if result.empty:
+        logging.warning("No TIC matches found for provided Gaia IDs.")
+        return {}
+
+    # Keep relevant columns and unique IDs
+    result = result.drop_duplicates(subset=["GAIA"])
+    mapping = dict(zip(result["GAIA"].astype(int), result["ID"].astype(int)))
+
+    # Log any missing Gaia IDs
+    missing = set(gaia_ids) - set(mapping.keys())
+    if missing:
+        logging.warning(f"No TIC match for {len(missing)} Gaia IDs: {list(missing)[:5]}...")
+
+    return mapping

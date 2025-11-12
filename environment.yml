@@ -1,0 +1,21 @@
+name: iso_env
+channels:
+  - conda-forge
+dependencies:
+  - python=3.9.23
+  - numpy
+  - numba
+  - pytables
+  - pandas
+  - pip
+  - pip:
+      - isochrones==2.1
+      - emcee
+      - matplotlib
+      - scikit-learn
+      - lightkurve
+      - astropy
+      - astroquery
+      - jupyter
+      - ipython
+      - h5py

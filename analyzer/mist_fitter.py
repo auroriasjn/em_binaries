@@ -16,7 +16,7 @@ class MISTFitter:
         self,
         data: pd.DataFrame,
         age_range: Tuple[float, float] = (90e6, 160e6),
-        feh_range: Tuple[float, float] = (-0.2, 0.2),
+        feh_range: Tuple[float, float] = (-0.4, 0.4),
         AV_range: Tuple[float, float] = (0.0, 0.6),
         # Nuisance shift parameters
         dM_range: Tuple[float, float] = (-0.15, 0.15),
@@ -45,6 +45,9 @@ class MISTFitter:
         self._sBP_med = np.nanmedian(self.data.get("BP_mag_unc", np.array([0.03])))
         self._sRP_med = np.nanmedian(self.data.get("RP_mag_unc", np.array([0.03])))
 
+        # Cache early.
+        self.best_model = None
+
     def _compute_distance_range(self, default=(110.0, 170.0)):
         if "distance" not in self.data.columns:
             return default
@@ -72,6 +75,8 @@ class MISTFitter:
     # ----- caching: base isochrone at 10 pc, AV=0 and per-point extinction slopes -----
     @lru_cache(maxsize=128)
     def _cache_iso_base(self, logage: float, feh: float, dAV: float = 0.05):
+        self.mist.param_index_order = [1, 2, 0, 3, 4]
+
         iso0 = self.mist.isochrone(logage, feh=feh, distance=10.0, AV=0.0)
         isoA = self.mist.isochrone(logage, feh=feh, distance=10.0, AV=dAV)
 
@@ -136,8 +141,12 @@ class MISTFitter:
         # KD-tree in standardized space (use medians to avoid rebuilding tree per-star)
         sC_med = np.median(sC)
         sM_med = np.median(sM)
-        tree = cKDTree(np.column_stack([iso_color / sC_med, iso_mag / sM_med]))
-        idx = tree.query(np.column_stack([color_obs / sC_med, mag_obs / sM_med]), k=1)[1]
+
+        iso_scaled = np.column_stack([iso_color / sC_med, iso_mag / sM_med])
+        obs_scaled = np.column_stack([color_obs / sC_med, mag_obs / sM_med])
+
+        tree = cKDTree(iso_scaled)
+        dist, idx = tree.query(obs_scaled, k=1)
 
         mC = iso_color[idx]
         mM = iso_mag[idx]
@@ -153,13 +162,13 @@ class MISTFitter:
         rC, rM, sC, sM = self._compute_residuals(theta)
 
         # asymmetric weights (tune lambdas)
-        λC = 1.8
-        λM = 1.5
+        λC = 1.0
+        λM = 1.0
         wC = 1.0 + λC * (rC < 0)
         wM = 1.0 + λM * (rM < 0)
 
         chi2 = wC * (rC / sC)**2 + wM * (rM / sM)**2
-        return -0.5 * np.nansum(chi2)
+        return -0.5 * np.nanmean(chi2)
 
     def ln_posterior(self, theta):
         lp = self.ln_prior(theta)
@@ -171,6 +180,17 @@ class MISTFitter:
             return -np.inf
         
         return lp + ll
+    
+    def bic(self):
+        if self.best_model is None:
+            raise RuntimeError("Error: run sample_cluster() before computing BIC.")
+
+        k = 6  # number of free parameters
+        N = len(self.data)  # number of stars
+
+        logL = self.ln_likelihood(self.best_model)
+
+        return k * np.log(N) - 2 * logL
 
     # ----- sampling -----
     def sample_cluster(self, n_walkers=40, n_burn=600, n_steps=1500, seed=None, progress=True):
@@ -359,7 +379,7 @@ class MISTFitter:
         labels = [
             r"$\mathrm{Age\ [yr]}$",
             r"$\mathrm{[Fe/H]}$",
-            r"$\mathrm{Distance\ [pc]}$",
+            r"$\mathrm{d\ [pc]}$",
             r"$A_V$",
             r"$\Delta M$",
             r"$\Delta C$"
