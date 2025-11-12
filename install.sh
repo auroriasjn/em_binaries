@@ -8,9 +8,9 @@ if ! command -v conda &>/dev/null; then
 fi
 
 conda env create -f environment.yml
-echo "Conda Environment created..."
+echo "Conda Environment created."
 
 echo "Installing em_binaries analyzer package.."
 pip install .
 
-echo "Installation complete."
+echo "Installation complete for analyzer backend."
