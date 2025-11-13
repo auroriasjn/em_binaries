@@ -36,8 +36,24 @@ class BinaryMixtureFitter(MISTFitter):
         self.qmin, self.qmax = q_range
 
         # observational uncertainties from MISTFitter
-        self.sC = np.sqrt(self.data["BP_mag_unc"]**2 + self.data["RP_mag_unc"]**2)
-        self.sM = self.data["G_mag_unc"].to_numpy()
+        if "G_mag_unc" in self.data:
+            self.sM = np.nan_to_num(self.data["G_mag_unc"].to_numpy(), nan=self._sG_med)
+        else:
+            self.sM = np.full(len(self.data), self._sG_med)
+
+        # BP and RP uncertainties (each with fallback)
+        if "BP_mag_unc" in self.data:
+            sBP = np.nan_to_num(self.data["BP_mag_unc"].to_numpy(), nan=self._sBP_med)
+        else:
+            sBP = np.full(len(self.data), self._sBP_med)
+
+        if "RP_mag_unc" in self.data:
+            sRP = np.nan_to_num(self.data["RP_mag_unc"].to_numpy(), nan=self._sRP_med)
+        else:
+            sRP = np.full(len(self.data), self._sRP_med)
+
+        # Color uncertainty
+        self.sC = np.sqrt(sBP**2 + sRP**2)
 
         # clamp to safe values
         self.sC = np.maximum(self.sC, 0.01)

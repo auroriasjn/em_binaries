@@ -51,17 +51,17 @@ class IsochroneSynthesizer:
         )
 
     def generate(self, n: int=1000):
-        return self.pop.generate(n)
+        data = self.pop.generate(n)
+        data['phot_bp_rp'] = data['BP_mag'] - data['RP_mag']
+
+        return data
     
     def plot_hr_diagram(self, n: int=1000, show: bool=True):
         data = self.generate(n)
 
-        # Get artificial colors
-        bp_rp = data['BP_mag'] - data['RP_mag']
-
         fig, ax = plt.subplots(figsize=(8, 10))
         ax.scatter(
-            bp_rp,
+            data['phot_bp_rp'],
             data['G_mag'],
             s=1,
             c='blue',
