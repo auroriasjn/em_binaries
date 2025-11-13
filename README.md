@@ -21,6 +21,8 @@ Make sure that you have **Anaconda** installed. Run the following command
 This will create
 an entirely new Anaconda environment for you called ```iso_env```.
 
+**Do note that this project only works for arm64 architectures due to how isochrones is compiled under the hood. The installation FAILS on x86_64 architectures. This is not a problem with this project's code but has in fact been raised multiple times by the creators of this package. Thus, in order to run this code, you must have built your Anaconda environment for the arm64 architecture. You can verify this by seeing that when the packages are being compiled, you see `osx-arm64` during the pre-compile stage.**
+
 # Getting Help
 
 If you have a question, please send an email to `jeremy.ng@yale.edu`.
