@@ -129,9 +129,14 @@ class MISTFitter:
         mag_obs   = G - dM
 
         # per-star uncertainties with safe fallbacks
-        sG  = np.nan_to_num(self.data.get("G_mag_unc",  np.full_like(G,  self._sG_med )).to_numpy(),  nan=self._sG_med)
-        sBP = np.nan_to_num(self.data.get("BP_mag_unc", np.full_like(BP, self._sBP_med)).to_numpy(),  nan=self._sBP_med)
-        sRP = np.nan_to_num(self.data.get("RP_mag_unc", np.full_like(RP, self._sRP_med)).to_numpy(),  nan=self._sRP_med)
+        sG_source  = self.data.get("G_mag_unc",  np.full_like(G,  self._sG_med))
+        sBP_source = self.data.get("BP_mag_unc", np.full_like(BP, self._sBP_med))
+        sRP_source = self.data.get("RP_mag_unc", np.full_like(RP, self._sRP_med))
+
+        sG  = np.nan_to_num(np.asarray(sG_source),  nan=self._sG_med)
+        sBP = np.nan_to_num(np.asarray(sBP_source), nan=self._sBP_med)
+        sRP = np.nan_to_num(np.asarray(sRP_source), nan=self._sRP_med)
+        
         sC  = np.sqrt(sBP**2 + sRP**2)
         sM  = sG
 
@@ -241,6 +246,9 @@ class MISTFitter:
         if self.samples is None:
             raise RuntimeError("Error: must run sample_cluster() before getting samples.")
         return self.samples
+    
+    def get_data(self):
+        return self.data
 
     def get_good_models(self, chi2_cutoff, max_models: int=200, seed: int=42):
         chi2 = np.asarray(self.chi2_vals)
