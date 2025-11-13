@@ -1,5 +1,4 @@
-[![Documentation Status](https://readthedocs.org/projects/dragonwebinterface/badge/?version=latest)](https://dragonwebinterface.readthedocs.io/en/latest/)
-[![Python Version 3.12](https://img.shields.io/badge/Python-3.12-blue)](https://www.python.org/downloads/)
+[![Python Version 3.9](https://img.shields.io/badge/Python-3.9-blue)](https://www.python.org/downloads/)
 [![GitHub license](https://img.shields.io/github/license/auroriasjn/DRAGONWebInterface)](https://github.com/auroriasjn/DRAGONWebInterface/blob/master/LICENSE)
 [![image](https://img.shields.io/badge/code%20style-black-000000.svg)](https://github.com/psf/black)
 
@@ -22,7 +21,7 @@ Make sure that you have **Anaconda** installed. Run the following command
 This will create
 an entirely new Anaconda environment for you called ```iso_env```.
 
-Do note that startup for the website will take a decent amount of time (on the order of 1 minute). More comprehensive documentation can be found [here](https://dragonwebinterface.readthedocs.io/en/latest/).
+Do note that startup for the website will take a decent amount of time (on the order of 1 minute).
 
 # Getting Help
 
