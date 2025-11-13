@@ -19,8 +19,8 @@ class MISTFitter:
         feh_range: Tuple[float, float] = (-0.4, 0.4),
         AV_range: Tuple[float, float] = (0.0, 0.6),
         # Nuisance shift parameters
-        dM_range: Tuple[float, float] = (-0.15, 0.15),
-        dC_range: Tuple[float, float] = (-0.08, 0.08),
+        dM_range: Tuple[float, float] = (-0.5, 0.5),
+        dC_range: Tuple[float, float] = (-0.3, 0.3),
     ):
         """
         Fit Pleiades-like cluster using Gaia G/BP/RP.
@@ -226,7 +226,7 @@ class MISTFitter:
         self.chi2_vals = chi2_vals
         self.samples   = samples
 
-        idx_best = np.argmin(chi2_vals)
+        idx_best = np.argmax(chi2_vals)
         self.best_model = samples[idx_best]
         self.best_chi2  = chi2_vals[idx_best]
 
@@ -329,7 +329,7 @@ class MISTFitter:
         ax.plot(
             iso_BP - iso_RP + dC,
             iso_G + dM,
-            color="black", lw=2.5, label=f"Best Model ($\chi^2={self.best_chi2:.1f}$)"
+            color="black", lw=2.5, label=f"Best Model ($-\chi^2/2={self.best_chi2:.1f}$)"
         )
 
         ax.set_xlabel("BP - RP")
