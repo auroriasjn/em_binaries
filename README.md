@@ -21,8 +21,6 @@ Make sure that you have **Anaconda** installed. Run the following command
 This will create
 an entirely new Anaconda environment for you called ```iso_env```.
 
-Do note that startup for the website will take a decent amount of time (on the order of 1 minute).
-
 # Getting Help
 
 If you have a question, please send an email to `jeremy.ng@yale.edu`.
