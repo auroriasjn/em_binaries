@@ -13,10 +13,10 @@ class IsochroneSynthesizer:
         mass_bounds: Tuple[float] = (0.8, 6.0),        # 1–5 Msun: good for red clump + AGB
         age_bounds: Tuple[float, float] = (1.0, 4.0), # Gyr; older than Pleiades but nice AGB
         feh_range: Tuple[float, float] = (-0.1, 0.1), # near-solar
-        AV_range: Tuple[float, float] = (0.0, 0.3),
+        AV_range: Tuple[float, float] = (0.0, 0.1),
         max_distance: int = 3000,                     # if you want a generic field/open cluster
         fB: float = 0.2,
-        gamma: float = 0.3
+        gamma: float = 0.1
     ):
         # Parameter initialization
         self.mass_bounds = mass_bounds

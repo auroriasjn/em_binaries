@@ -81,7 +81,7 @@ class BinaryMixtureFitter(MISTFitter):
     def _compute_binary_iso(self, age, feh, distance, AV, q):
         logage = np.log10(age)
 
-        # --- Primary isochrone ---
+        # --- Primary: base isochrone at 10 pc, AV=0 ---
         self.mist.param_index_order = [1, 2, 0, 3, 4]
         iso = self.mist.isochrone(logage, feh=feh, distance=10.0, AV=0.0)
 
@@ -90,10 +90,8 @@ class BinaryMixtureFitter(MISTFitter):
         BP1 = iso["BP_mag"].to_numpy()
         RP1 = iso["RP_mag"].to_numpy()
 
-        # --- Companion masses ---
+        # --- Secondary: same age/feh, 10 pc, AV=0 ---
         mass2 = q * mass1
-
-        # --- Companion EEPs ---
         try:
             eep2 = self.mist.get_eep(mass2, logage, feh, accurate=True)
         except ValueError as e:
@@ -104,14 +102,13 @@ class BinaryMixtureFitter(MISTFitter):
         eep_max = self.mist.model_grid.interp.index_columns[2].max()
         eep2 = np.clip(eep2, eep_min, eep_max)
 
-        # --- Switch for magnitude interpolation ---
         self.mist.param_index_order = [0, 1, 2, 3, 4]
         G2_list, BP2_list, RP2_list = [], [], []
         for e in eep2:
             try:
-                _, _, _, g  = self.mist.interp_mag([logage, feh, e, distance, AV], ["G"])
-                _, _, _, bp = self.mist.interp_mag([logage, feh, e, distance, AV], ["BP"])
-                _, _, _, rp = self.mist.interp_mag([logage, feh, e, distance, AV], ["RP"])
+                _, _, _, g  = self.mist.interp_mag([logage, feh, e, 10.0, 0.0], ["G"])
+                _, _, _, bp = self.mist.interp_mag([logage, feh, e, 10.0, 0.0], ["BP"])
+                _, _, _, rp = self.mist.interp_mag([logage, feh, e, 10.0, 0.0], ["RP"])
                 G2_list.append(g[0])
                 BP2_list.append(bp[0])
                 RP2_list.append(rp[0])
@@ -125,33 +122,26 @@ class BinaryMixtureFitter(MISTFitter):
         BP2 = np.array(BP2_list)
         RP2 = np.array(RP2_list)
 
-        assert np.all(np.isfinite(G2)), "NaNs detected in G"
-        assert np.all(np.isfinite(BP2)), "NaNs detected in BP"
-        assert np.all(np.isfinite(RP2)), "NaNs detected in RP"
-
-        # --- Combine fluxes ---
+        # Combine fluxes at 10 pc, AV=0
         def combine(m1, m2):
             f1 = 10**(-0.4 * m1)
             f2 = 10**(-0.4 * m2)
             return -2.5 * np.log10(f1 + f2)
-    
-        G_bin  = combine(G1,  G2)
-        BP_bin = combine(BP1, BP2)
-        RP_bin = combine(RP1, RP2)
 
-        # --- Apply distance modulus + extinction ---
+        G_bin_0  = combine(G1,  G2)
+        BP_bin_0 = combine(BP1, BP2)
+        RP_bin_0 = combine(RP1, RP2)
+
+        # Apply distance + extinction exactly *once*
         DM = distance_modulus(distance)
         G0, BP0, RP0, dG, dBP, dRP = self._cache_iso_base(logage, feh)
 
-        G_bin  = G_bin  + DM + dG  * AV
-        BP_bin = BP_bin + DM + dBP * AV
-        RP_bin = RP_bin + DM + dRP * AV
-
-        assert np.all(np.isfinite(G_bin)), "NaNs detected in G_bin"
-        assert np.all(np.isfinite(BP_bin)), "NaNs detected in BP_bin"
-        assert np.all(np.isfinite(RP_bin)), "NaNs detected in RP_bin"
+        G_bin  = G_bin_0  + DM + dG  * AV
+        BP_bin = BP_bin_0 + DM + dBP * AV
+        RP_bin = RP_bin_0 + DM + dRP * AV
 
         return G_bin, BP_bin, RP_bin
+
 
     # ---------------------------------------------------------
     # Likelihoods
