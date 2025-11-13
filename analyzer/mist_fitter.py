@@ -9,7 +9,7 @@ from functools import lru_cache
 from scipy.spatial import cKDTree
 
 from isochrones import get_ichrone
-from utils import distance_modulus
+from utils import distance_modulus, safe_loc
 
 class MISTFitter:
     def __init__(
@@ -39,6 +39,7 @@ class MISTFitter:
         self.distance_range = self._compute_distance_range(default=(110.0, 170.0))
 
         self.mist = get_ichrone("mist", bands=["G", "BP", "RP"])
+        self.mist.model_grid.df_loc = safe_loc
 
         # cache median uncertainty fallbacks
         self._sG_med  = np.nanmedian(self.data.get("G_mag_unc",  np.array([0.03])))

@@ -8,3 +8,8 @@ def flux_to_mag(flux):
 
 def distance_modulus(distance):
     return 5.0 * np.log10(distance / 10.0)
+
+def safe_loc(df, feh):
+    levels = df.index.levels[1].to_numpy()
+    feh_fixed = levels[np.argmin(np.abs(levels - feh))]
+    return df.xs(feh_fixed, level=1)

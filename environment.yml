@@ -1,4 +1,4 @@
-name: iso_env
+name: iso_test
 channels:
   - conda-forge
 dependencies:
