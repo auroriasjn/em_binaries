@@ -1,4 +1,15 @@
+import os
+import pandas as pd
+import numpy as np
+import logging
+import requests
+
 from astroquery.mast import Catalogs
+
+EB_URL = (
+    "https://archive.stsci.edu/hlsps/tess-ebs/"
+    "hlsp_tess-ebs_tess_lcf-ffi_s0001-s0026_tess_v1.0_cat.csv"
+)
 
 def create_gaia_query(source_ids: list[int]) -> str:
     preamble = """
@@ -26,20 +37,10 @@ def create_gaia_query(source_ids: list[int]) -> str:
     adql_query = preamble.format(source_ids=','.join(map(str, source_ids)))
     return adql_query
 
-from astroquery.mast import Catalogs
-import pandas as pd
-import numpy as np
-import logging
-
 def gaia_to_tic(gaia_ids):
     """
     Robust batch converter from Gaia DR3 IDs to TIC IDs.
     Queries MAST only once, handles DR2/DR3 mismatch, and removes duplicates.
-
-    Parameters
-    ----------
-    gaia_ids : list[int] or int
-        Gaia source_id(s) to crossmatch with the TESS Input Catalog.
 
     Returns
     -------
@@ -75,3 +76,37 @@ def gaia_to_tic(gaia_ids):
         logging.warning(f"No TIC match for {len(missing)} Gaia IDs: {list(missing)[:5]}...")
 
     return mapping
+
+def download_eb_catalog(path="data/tess_eb_catalog.csv"):
+    """Download TESS EB catalog if not present."""
+    if os.path.exists(path):
+        logging.info(f"Using cached TESS EB catalog at {path}")
+        return path
+
+    logging.info("Downloading TESS Eclipsing Binary catalog...")
+    r = requests.get(EB_URL)
+    r.raise_for_status()
+
+    with open(path, "wb") as f:
+        f.write(r.content)
+
+    logging.info(f"Saved TESS EB catalog to {path}")
+    return path
+
+
+def load_eb_catalog(path="data/tess_eb_catalog.csv"):
+    """Load EB catalog as DataFrame."""
+    path = download_eb_catalog(path)
+    df = pd.read_csv(path)
+
+    # Standardize TIC column name
+    possible_tic_cols = ["TIC", "tic_id", "tic", "tess_id"]
+    for col in possible_tic_cols:
+        if col in df.columns:
+            tic_col = col
+            break
+    else:
+        raise ValueError("No TIC column found in EB catalog.")
+
+    df["tic"] = df[tic_col].astype(str).str.strip()
+    return df

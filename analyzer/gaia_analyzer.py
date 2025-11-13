@@ -7,7 +7,7 @@ from typing import List
 class GaiaAnalyzer:    
     def __init__(
         self,
-        filename: str='gaia.csv'
+        filename: str='data/gaia.csv'
     ):
         self.filename = filename
         self.data = pd.read_csv(self.filename)
@@ -17,6 +17,11 @@ class GaiaAnalyzer:
 
         # Init Uncertainties
         self._init_uncertainties()
+
+    def get_source(self, source_id: str):
+        df = self.data
+        row = df[df["source_id"].astype(str) == str(source_id)]
+        return row.squeeze() if not row.empty else None
 
     def extract_source_ids(self) -> List[str]:
         return self.data['source_id'].astype(str).tolist()

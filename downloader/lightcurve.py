@@ -3,7 +3,7 @@ import lightkurve as lk
 
 from typing import List, Dict
 from tqdm import tqdm
-from utils import gaia_to_tic
+from utils import gaia_to_tic, download_eb_catalog, load_eb_catalog
 from lightkurve.search import SearchError
 
 class LightCurveExtractor:
@@ -43,7 +43,19 @@ class LightCurveExtractor:
 
         # Clean data
         try:
-            lc = lc.remove_outliers(sigma=5).flatten(window_length=25)
+            lc = lc.remove_nans().remove_outliers(sigma=5)
+
+            # CBV systematics correction (if available)
+            try:
+                lc = lc.correct()
+            except Exception:
+                pass
+
+            lc = lc.normalize()
+
+            # Flatten sector by sector
+            lc = lc.flatten(window_length=401, break_tolerance=10)
+
         except Exception as e:
             logging.error(f"Error cleaning LC for {source_id}: {e}")
             return None
@@ -67,3 +79,47 @@ class LightCurveExtractor:
             lightcurves[source_id] = result
 
         return lightcurves
+    
+    def extract_eb_lightcurves(self, source_ids: List[str]) -> Dict[str, tuple]:
+        # Load EB catalog
+        eb_df = load_eb_catalog()
+
+        # Standardize TIC column
+        if "tic" in eb_df.columns:
+            tic_col = "tic"
+        else:
+            # autodetect + rename to "tic"
+            for col in ["TIC", "tic_id", "tess_id"]:
+                if col in eb_df.columns:
+                    eb_df["tic"] = eb_df[col].astype(str).str.strip()
+                    tic_col = "tic"
+                    break
+            else:
+                raise ValueError("EB catalog missing TIC column!")
+        
+        eb_tics = set(eb_df[tic_col].astype(str))
+
+        # Map Gaia → TIC
+        gaia_to_tic_map = gaia_to_tic(source_ids)
+
+        # Collect TICs that are in the EB catalog
+        matched_tics = []
+        for source_id in tqdm(source_ids):
+            tess_id = gaia_to_tic_map.get(int(source_id))
+            logging.info(f"Inspecting for EB membership: Gaia {source_id} -> TIC {tess_id}")
+            
+            if tess_id is None:
+                continue
+            
+            # normalize
+            tess_id_str = str(tess_id).strip()
+
+            if tess_id_str in eb_tics:
+                matched_tics.append(source_id)   # note: use Gaia IDs for extraction
+
+        logging.info(f"Found {len(matched_tics)} EB matches.")
+
+        # Re-use your existing method to pull light curves normally
+        return self.extract_gaia_lightcurves(matched_tics)
+
+

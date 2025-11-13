@@ -35,6 +35,12 @@ class BinaryMixtureFitter(MISTFitter):
         self.mass_ratio = mass_ratio  # q
         self.qmin, self.qmax = q_range
 
+        self._init_unc()
+
+        # use best-fit single-star cluster parameters:
+        self.theta = None
+
+    def _init_unc(self):
         # observational uncertainties from MISTFitter
         if "G_mag_unc" in self.data:
             self.sM = np.nan_to_num(self.data["G_mag_unc"].to_numpy(), nan=self._sG_med)
@@ -58,9 +64,6 @@ class BinaryMixtureFitter(MISTFitter):
         # clamp to safe values
         self.sC = np.maximum(self.sC, 0.01)
         self.sM = np.maximum(self.sM, 0.01)
-
-        # use best-fit single-star cluster parameters:
-        self.theta = None
 
     # ---------------------------------------------------------
     # Helpers
@@ -296,6 +299,27 @@ class BinaryMixtureFitter(MISTFitter):
         logging.info(f"Final mixture weights: {self.mixture_weights}")
         return self
     
+    def get_probability(self, source_id: str):
+        if self.theta is None:
+            raise RuntimeError("Error: fit() must be run first.")
+        
+        # Compute responsibilities
+        R = self.E_step(self.theta)   # shape = (N, 3)
+        
+        # Find the index of the star in your dataset
+        df = self.data
+        idx = df.index[df['source_id'].astype(str) == str(source_id)]
+        
+        if len(idx) == 0:
+            raise ValueError(f"Source ID {source_id} not found in dataset.")
+        
+        i = idx[0]
+        return {
+            "single": float(R[i, 0]),
+            "binary": float(R[i, 1]),
+            "field":  float(R[i, 2]),
+        }
+
     def plot(self):
         if self.theta is None:
             raise RuntimeError("Error: fit() must be run first.")
