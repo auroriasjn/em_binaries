@@ -1,8 +1,10 @@
 import matplotlib.pyplot as plt
+import numpy as np
 
 from scipy.stats import uniform, norm
 
 from typing import Tuple
+from utils import safe_loc
 from isochrones import get_ichrone
 from isochrones.priors import GaussianPrior, SalpeterPrior, DistancePrior, FlatPrior
 from isochrones.populations import StarFormationHistory, StarPopulation
@@ -10,44 +12,42 @@ from isochrones.populations import StarFormationHistory, StarPopulation
 class IsochroneSynthesizer:
     def __init__(
         self,
-        mass_bounds: Tuple[float] = (0.8, 6.0),        # 1–5 Msun: good for red clump + AGB
-        age_bounds: Tuple[float, float] = (1.0, 4.0), # Gyr; older than Pleiades but nice AGB
-        feh_range: Tuple[float, float] = (-0.1, 0.1), # near-solar
-        AV_range: Tuple[float, float] = (0.0, 0.1),
-        max_distance: int = 3000,                     # if you want a generic field/open cluster
-        fB: float = 0.2,
-        gamma: float = 0.1
+        mass_bounds: Tuple[float] = (0.1, 4.0),        # Pleiades: low→B stars but no giants
+        age: float = 1.1e8,                            # 112 Myr
+        feh: float = 0.0,                              # near-solar
+        AV: float = 0.12,
+        distance: float = 135,                         # pc
+        fB: float = 0.3                                # Pleiades-like binary fraction
     ):
-        # Parameter initialization
         self.mass_bounds = mass_bounds
-        self.age_bounds = age_bounds
-        self.feh_range = feh_range
-        self.AV_range = AV_range
-
+        self.age = age
+        self.feh = feh
+        self.AV = AV
+        self.distance = distance
         self.fB = fB
-        self.gamma = gamma
-        self.max_distance = max_distance
 
-        # MIST and prior initialization
         self.mist = get_ichrone("mist", bands=["G", "BP", "RP"])
+        self.mist.model_grid.df_loc = safe_loc
 
-        self._init_priors()
+        self._init_fixed_cluster()
 
-    def _init_priors(self):
+    def _init_fixed_cluster(self):
         self.imf = SalpeterPrior(bounds=self.mass_bounds)
-        self.sfh = StarFormationHistory(dist=uniform(*self.age_bounds))
-        self.feh = GaussianPrior(*self.feh_range)
-        self.distance = DistancePrior(max_distance=self.max_distance)
-        self.AV = FlatPrior(bounds=self.AV_range)
+
+        # Fixed priors for a single-aged cluster
+        self.sfh = StarFormationHistory(dist=norm(loc=np.log10(self.age), scale=0.02))
+        self.feh_prior = GaussianPrior(self.feh, 0.02)
+        self.distance_prior = DistancePrior(max_distance=self.distance)
+        self.AV_prior = GaussianPrior(self.AV, 0.02)
 
         self.pop = StarPopulation(
             self.mist,
             imf=self.imf,
             fB=self.fB,
             sfh=self.sfh,
-            feh=self.feh,
-            distance=self.distance,
-            AV=self.AV
+            feh=self.feh_prior,
+            distance=self.distance_prior,
+            AV=self.AV_prior
         )
 
     def generate(self, n: int=1000):

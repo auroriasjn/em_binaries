@@ -18,18 +18,27 @@ class BinaryMixtureFitter(MISTFitter):
     Where likelihoods are computed in CMD space using KD-tree matching.
     """
     def __init__(self, data, fB=0.2, mass_ratio=1.0,
-                 q_range=(0.1, 1.0), field_weight=0.0, **kwargs):
+                 q_range=(0.1, 1.0), field_weight=0.0,
+                 use_field: bool = True, **kwargs):
 
         super().__init__(data, **kwargs)
 
-        # mixture weights
-        self.pi_single = 1.0 - fB - field_weight
-        self.pi_binary = fB
-        self.pi_field  = field_weight
+        self.use_field = use_field
 
-        self.mixture_weights = np.array(
-            [self.pi_single, self.pi_binary, self.pi_field]
-        )
+        # mixture weights
+        if self.use_field:
+            self.pi_single = 1.0 - fB - field_weight
+            self.pi_binary = fB
+            self.pi_field  = field_weight
+            self.mixture_weights = np.array(
+                [self.pi_single, self.pi_binary, self.pi_field]
+            )
+        else:
+            self.pi_single = 1.0 - fB
+            self.pi_binary = fB
+            self.mixture_weights = np.array(
+                [self.pi_single, self.pi_binary]
+            )
 
         # binary properties
         self.mass_ratio = mass_ratio  # q
@@ -217,27 +226,26 @@ class BinaryMixtureFitter(MISTFitter):
         # per-star log-likelihoods
         ls = self._single_likelihood(theta)
         lb = self._binary_likelihood(theta)
-        lf = self._field_likelihood(theta)
 
         # --- Optional median normalization for scale parity ---
         ls -= np.nanmedian(ls)
         lb -= np.nanmedian(lb)
-        lf -= np.nanmedian(lf)
-
-        # --- Diagnostics for monitoring ---
-        logging.info(
-            f"lnL stats | single: mean={np.mean(ls):.2f} max={np.max(ls):.2f}, "
-            f"binary: mean={np.mean(lb):.2f} max={np.max(lb):.2f}, "
-            f"field: mean={np.mean(lf):.2f} max={np.max(lf):.2f}"
-        )
 
         log_pi = np.log(self.mixture_weights + 1e-300)
 
-        log_post = np.column_stack([
-            log_pi[0] + ls,
-            log_pi[1] + lb,
-            log_pi[2] + lf
-        ]) / max(tau, 1.0)
+        if self.use_field:
+            lf = self._field_likelihood(theta)
+            lf -= np.nanmedian(lf)
+            log_post = np.column_stack([
+                log_pi[0] + ls,
+                log_pi[1] + lb,
+                log_pi[2] + lf
+            ]) / max(tau, 1.0)
+        else:
+            log_post = np.column_stack([
+                log_pi[0] + ls,
+                log_pi[1] + lb,
+            ]) / max(tau, 1.0)
 
         log_post -= np.max(log_post, axis=1, keepdims=True)
         R = np.exp(log_post)
@@ -252,12 +260,16 @@ class BinaryMixtureFitter(MISTFitter):
         Nk = R.sum(axis=0)
         Nk[~np.isfinite(Nk)] = 0.0
 
-        # weak prior favoring cluster comps over field
-        alpha = np.array([6.0, 3.0, 1.5])   # tune if needed
+        if self.use_field:
+            alpha = np.array([6.0, 3.0, 1.5])
+        else:
+            alpha = np.array([6.0, 3.0])  # only 2 components
+
         Nk += (alpha - 1.0)
 
         self.mixture_weights = Nk / Nk.sum()
-        # keep numerically healthy
+
+        # numeric safety
         eps = 1e-6
         self.mixture_weights = np.clip(self.mixture_weights, eps, 1 - eps)
         self.mixture_weights /= self.mixture_weights.sum()
@@ -304,30 +316,44 @@ class BinaryMixtureFitter(MISTFitter):
             raise ValueError(f"Source ID {source_id} not found in dataset.")
         
         i = idx[0]
-        return {
+        res = {
             "single": float(R[i, 0]),
             "binary": float(R[i, 1]),
-            "field":  float(R[i, 2]),
         }
+        if self.use_field:
+            res["field"] = float(R[i, 2])
+        
+        return res
 
     def plot(self):
         if self.theta is None:
             raise RuntimeError("Error: fit() must be run first.")
     
         R = self.E_step(self.theta)
-        labels = ["Single", "Binary", "Field"]
-        colors = [R[:,0], R[:,1], R[:,2]]
+        if self.use_field:
+            labels = ["Single", "Binary", "Field"]
+            colors = [R[:,0], R[:,1], R[:,2]]
 
-        fig, axes = plt.subplots(1, 3, figsize=(15, 8), sharex=True, sharey=True)
+            fig, axes = plt.subplots(1, 3, figsize=(15, 8), sharex=True, sharey=True)
+        else:
+            labels = ["Single", "Binary"]
+            colors = [R[:,0], R[:,1]]
+
+            fig, axes = plt.subplots(1, 2, figsize=(15, 8), sharex=True, sharey=True)
+
         for ax, c, lbl in zip(axes, colors, labels):
             sc = ax.scatter(self.BP - self.RP, self.G,
                             c=c, cmap="plasma", s=10)
-            ax.invert_yaxis()
             ax.set_title(lbl)
             plt.colorbar(sc, ax=ax, label=f"P({lbl})")
-        plt.xlabel("(BP − RP)")
-        plt.ylabel("G magnitude")
+            ax.set_xlabel("(BP − RP)")
+            ax.set_ylabel("G magnitude")
+        
+        for ax in axes:
+            ymin, ymax = ax.get_ylim()
+            ax.set_ylim(max(ymin, ymax), min(ymin, ymax))
+        
         plt.tight_layout()
         plt.show()
 
-        return fig, ax
+        return fig, axes

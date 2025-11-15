@@ -95,12 +95,18 @@ class MISTFitter:
     def ln_prior(self, theta):
         age, feh, distance, AV, dM, dC = theta
 
-        if not (self.age_range[0]     < age      < self.age_range[1]):     return -np.inf
-        if not (self.feh_range[0]     < feh      < self.feh_range[1]):     return -np.inf
-        if not (self.distance_range[0] < distance < self.distance_range[1]): return -np.inf
-        if not (self.AV_range[0]      < AV       < self.AV_range[1]):      return -np.inf
-        if not (self.dM_range[0]      < dM       < self.dM_range[1]):      return -np.inf
-        if not (self.dC_range[0]      < dC       < self.dC_range[1]):      return -np.inf
+        if not (self.age_range[0] < age < self.age_range[1]):
+            return -np.inf
+        if not (self.feh_range[0] < feh < self.feh_range[1]): 
+            return -np.inf
+        if not (self.distance_range[0] < distance < self.distance_range[1]): 
+            return -np.inf
+        if not (self.AV_range[0] < AV < self.AV_range[1]):      
+            return -np.inf
+        if not (self.dM_range[0] < dM < self.dM_range[1]):      
+            return -np.inf
+        if not (self.dC_range[0] < dC < self.dC_range[1]):      
+            return -np.inf
 
         return 0.0
 
@@ -200,6 +206,8 @@ class MISTFitter:
 
     # ----- sampling -----
     def sample_cluster(self, n_walkers=40, n_burn=600, n_steps=1500, seed=None, progress=True):
+        # Adapted from Lab 3
+
         rng = np.random.default_rng(seed)
         ndim = 6  # (age, feh, distance, AV, dM, dC)
         p0 = np.array([
@@ -258,7 +266,6 @@ class MISTFitter:
         ok = np.isfinite(chi2) & (chi2 <= chi2_cutoff)
         good = samples[ok]
 
-        # optional thinning
         if len(good) > max_models:
             rng = np.random.default_rng(seed)
             idx = rng.choice(len(good), size=max_models, replace=False)
