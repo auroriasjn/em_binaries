@@ -3,7 +3,7 @@
 [![image](https://img.shields.io/badge/code%20style-black-000000.svg)](https://github.com/psf/black)
 
 # EM Binaries Project
-Description here TBD.
+Unresolved binaries and multiple systems play a crucial and yet largely underrated role in a variety of astrophysical contexts. Since unresolved binaries typically fall above ~0.5-0.75 mag of a fitted isochrone in a CMD if their mass ratio $q = 1.0$ (in other words, they broaden the main-sequence in a cluster), unresolved binaries—specifically, contact binaries when looking at photometric data—can severely bias estimates of the age, metallicity, and stellar type classification. To attempt to correct for this, we design a isochrone mixture model that takes into account both the weight of a single-star isochrone and also model a companion isochrone with companion mass at a ratio $q$ to the primary. We show that this model is mildly successful but fails when the cluster has a variety of ages (synthetic data).
 
 # Installation
 Please ```git clone``` this repository by running the following command:
