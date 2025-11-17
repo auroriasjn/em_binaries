@@ -10,6 +10,10 @@ class GaiaAggregator:
         self,
         file_names: List[str] = ["clustercat.dat", "escapecat.dat"],
     ):
+        """
+        This class is just meant to aggregate some of the weird data that
+        was achieved from the initial Pleiades fit code.
+        """
         self.file_names = file_names
 
         # Aggregate data from files

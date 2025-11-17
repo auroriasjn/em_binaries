@@ -12,12 +12,12 @@ from isochrones.populations import StarFormationHistory, StarPopulation
 class IsochroneSynthesizer:
     def __init__(
         self,
-        mass_bounds: Tuple[float] = (0.1, 4.0),        # Pleiades: low→B stars but no giants
-        age: float = 1.1e8,                            # 112 Myr
-        feh: float = 0.0,                              # near-solar
+        mass_bounds: Tuple[float] = (0.1, 12.0),
+        age: float = 1.1e8,
+        feh: float = 0.0, 
         AV: float = 0.12,
-        distance: float = 135,                         # pc
-        fB: float = 0.3                                # Pleiades-like binary fraction
+        distance: float = 135,
+        fB: float = 0.5
     ):
         self.mass_bounds = mass_bounds
         self.age = age

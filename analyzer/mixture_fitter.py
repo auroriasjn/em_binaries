@@ -18,12 +18,13 @@ class BinaryMixtureFitter(MISTFitter):
     Where likelihoods are computed in CMD space using KD-tree matching.
     """
     def __init__(self, data, fB=0.2, mass_ratio=1.0,
-                 q_range=(0.1, 1.0), field_weight=0.0,
-                 use_field: bool = True, **kwargs):
+                 q_range=(0.1, 1), field_weight=0.0,
+                 use_field: bool = True, tau: float = 1.5, **kwargs):
 
         super().__init__(data, **kwargs)
 
         self.use_field = use_field
+        self.tau = tau
 
         # mixture weights
         if self.use_field:
@@ -84,107 +85,110 @@ class BinaryMixtureFitter(MISTFitter):
         return self.mixture_weights
 
     # ---------------------------------------------------------
-    # Binary isochrone (correct implementation using MIST EEP interpolation)
+    # Binary isochrone
     # ---------------------------------------------------------
-    @lru_cache(maxsize=32)
     def _compute_binary_iso(self, age, feh, distance, AV, q):
         logage = np.log10(age)
 
-        # --- Primary: base isochrone at 10 pc, AV=0 ---
-        self.mist.param_index_order = [1, 2, 0, 3, 4]
         iso = self.mist.isochrone(logage, feh=feh, distance=10.0, AV=0.0)
 
-        mass1 = iso["mass"].to_numpy()
-        G1  = iso["G_mag"].to_numpy()
-        BP1 = iso["BP_mag"].to_numpy()
-        RP1 = iso["RP_mag"].to_numpy()
+        mass1 = iso["mass"].values
+        mass2 = mass1 * q
 
-        # --- Secondary: same age/feh, 10 pc, AV=0 ---
-        mass2 = q * mass1
-        try:
-            eep2 = self.mist.get_eep(mass2, logage, feh, accurate=True)
-        except ValueError as e:
-            logging.error(f"Skipping binary computation: {e}")
-            return np.array([]), np.array([]), np.array([])
+        # Mask invalid secondary masses (outside isochrone bounds)
+        mmin, mmax = mass1.min(), mass1.max()
+        valid = (mass2 >= mmin) & (mass2 <= mmax)
 
-        eep_min = self.mist.model_grid.interp.index_columns[2].min()
-        eep_max = self.mist.model_grid.interp.index_columns[2].max()
-        eep2 = np.clip(eep2, eep_min, eep_max)
+        # Interpolate secondary magnitudes in mass domain
+        def interp_mag(mass_base, mag_base, m2):
+            return np.interp(m2, mass_base, mag_base)
 
-        self.mist.param_index_order = [0, 1, 2, 3, 4]
-        G2_list, BP2_list, RP2_list = [], [], []
-        for e in eep2:
-            try:
-                _, _, _, g  = self.mist.interp_mag([logage, feh, e, 10.0, 0.0], ["G"])
-                _, _, _, bp = self.mist.interp_mag([logage, feh, e, 10.0, 0.0], ["BP"])
-                _, _, _, rp = self.mist.interp_mag([logage, feh, e, 10.0, 0.0], ["RP"])
-                G2_list.append(g[0])
-                BP2_list.append(bp[0])
-                RP2_list.append(rp[0])
-            except Exception as err:
-                logging.info(f"interp_mag failed at EEP={e:.1f}: {err}")
-                G2_list.append(np.nan)
-                BP2_list.append(np.nan)
-                RP2_list.append(np.nan)
+        G1, BP1, RP1 = iso["G_mag"].values, iso["BP_mag"].values, iso["RP_mag"].values
+        G2  = interp_mag(mass1, G1,  mass2)
+        BP2 = interp_mag(mass1, BP1, mass2)
+        RP2 = interp_mag(mass1, RP1, mass2)
 
-        G2  = np.array(G2_list)
-        BP2 = np.array(BP2_list)
-        RP2 = np.array(RP2_list)
-
-        # Combine fluxes at 10 pc, AV=0
+        # Combine fluxes
         def combine(m1, m2):
-            f1 = 10**(-0.4 * m1)
-            f2 = 10**(-0.4 * m2)
-            return -2.5 * np.log10(f1 + f2)
+            return -2.5 * np.log10(10**(-0.4*m1) + 10**(-0.4*m2))
 
         G_bin_0  = combine(G1,  G2)
         BP_bin_0 = combine(BP1, BP2)
         RP_bin_0 = combine(RP1, RP2)
 
-        # Apply distance + extinction exactly *once*
+        # Apply distance mod + extinction
         DM = distance_modulus(distance)
-        G0, BP0, RP0, dG, dBP, dRP = self._cache_iso_base(logage, feh)
+        _, _, _, dG, dBP, dRP = self._cache_iso_base(logage, feh)
 
         G_bin  = G_bin_0  + DM + dG  * AV
         BP_bin = BP_bin_0 + DM + dBP * AV
         RP_bin = RP_bin_0 + DM + dRP * AV
 
-        return G_bin, BP_bin, RP_bin
-
+        # Return only valid entries
+        return G_bin[valid], BP_bin[valid], RP_bin[valid]
 
     # ---------------------------------------------------------
     # Likelihoods
     # ---------------------------------------------------------
-    def _binary_likelihood(self, theta):
+    def _binary_likelihood(self, theta, nq: int = 20):
+        """
+        Binary likelihood marginalized over mass ratio q.
+        """
         age, feh, distance, AV, dM, dC = theta
-        isoG, isoBP, isoRP = self._compute_binary_iso(age, feh, distance, AV, q=self.mass_ratio)
 
-        # If computation failed, return zeros of correct shape
-        if isoG.size == 0:
-            logging.warning("Binary isochrone returned empty array; using uniform low likelihood.")
+        # Uniform q sampling across allowed range
+        qs = np.linspace(self.qmin, self.qmax, nq)
+
+        lnLs = []
+        valid_qs = []
+        for q in qs:
+            isoG, isoBP, isoRP = self._compute_binary_iso(age, feh, distance, AV, q=q)
+
+            # Skip q that yields invalid isochrone
+            if isoG.size == 0 or np.all(~np.isfinite(isoG)):
+                continue
+
+            iso_color = isoBP - isoRP
+            iso_mag   = isoG
+
+            obs_color = (self.BP - self.RP) - dC
+            obs_mag   = self.G - dM
+
+            tree = cKDTree(np.column_stack([iso_color, iso_mag]))
+            idx = tree.query(np.column_stack([obs_color, obs_mag]), k=1)[1]
+
+            rC = obs_color - iso_color[idx]
+            rM = obs_mag   - iso_mag[idx]
+
+            # --- Intrinsic scatter added here ---
+            sigmaC_int = 0.15  # (mag)
+            sigmaM_int = 0.30  # (mag)
+            sC_eff = np.sqrt(self.sC**2 + sigmaC_int**2)
+            sM_eff = np.sqrt(self.sM**2 + sigmaM_int**2)
+
+            # log-likelihood for this q
+            lnL_q = -0.5 * ((rC / sC_eff)**2 + (rM / sM_eff)**2)
+            lnLs.append(lnL_q)
+            valid_qs.append(q)
+
+        # If all q failed, give tiny likelihood instead of crashing
+        if not lnLs:
+            logging.warning("All q failed → uniform tiny binary likelihood")
             return np.full(len(self.data), -np.inf)
 
-        iso_color = isoBP - isoRP
-        iso_mag   = isoG
+        # Stack: shape (nq, Nstars)
+        lnLs = np.stack(lnLs, axis=0)
 
-        obs_color = (self.BP - self.RP) - dC
-        obs_mag   = self.G - dM
+        # Log-sum-exp averaging over q (= marginalization)
+        maxL = np.nanmax(lnLs, axis=0)
+        lnL = maxL + np.log(np.nanmean(np.exp(lnLs - maxL), axis=0))
 
-        tree = cKDTree(np.column_stack([iso_color, iso_mag]))
-        idx = tree.query(np.column_stack([obs_color, obs_mag]), k=1)[1]
+        # Finding the best binary mass ratio
+        valid_qs = np.array(valid_qs)
+        q_idx = np.argmax(lnLs, axis=0)
+        q_best = valid_qs[q_idx]
 
-        rC = obs_color - iso_color[idx]
-        rM = obs_mag   - iso_mag[idx]
-
-        # --- Intrinsic scatter added here ---
-        sigmaC_int = 0.15  # intrinsic color scatter (mag)
-        sigmaM_int = 0.30  # intrinsic mag scatter (mag)
-        sC_eff = np.sqrt(self.sC**2 + sigmaC_int**2)
-        sM_eff = np.sqrt(self.sM**2 + sigmaM_int**2)
-
-        # Return per-star log-likelihood array
-        lnL = -0.5 * ((rC / sC_eff)**2 + (rM / sM_eff)**2)
-        return lnL
+        return lnL, q_best
 
     def _single_likelihood(self, theta):
         # Compute isochrone residuals per star
@@ -222,10 +226,10 @@ class BinaryMixtureFitter(MISTFitter):
     # ---------------------------------------------------------
     # EM Algorithm
     # ---------------------------------------------------------
-    def E_step(self, theta, tau: float = 1.5):
+    def E_step(self, theta):
         # per-star log-likelihoods
         ls = self._single_likelihood(theta)
-        lb = self._binary_likelihood(theta)
+        lb, q_best = self._binary_likelihood(theta)
 
         # --- Optional median normalization for scale parity ---
         ls -= np.nanmedian(ls)
@@ -240,19 +244,19 @@ class BinaryMixtureFitter(MISTFitter):
                 log_pi[0] + ls,
                 log_pi[1] + lb,
                 log_pi[2] + lf
-            ]) / max(tau, 1.0)
+            ]) / max(self.tau, 1.0)
         else:
             log_post = np.column_stack([
                 log_pi[0] + ls,
                 log_pi[1] + lb,
-            ]) / max(tau, 1.0)
+            ]) / max(self.tau, 1.0)
 
         log_post -= np.max(log_post, axis=1, keepdims=True)
         R = np.exp(log_post)
         R /= np.sum(R, axis=1, keepdims=True)
         R[~np.isfinite(R)] = 0.0
 
-        return R
+        return R, q_best
 
     def M_step(self, R):
         logging.debug("=== M-step start ===")
@@ -290,7 +294,7 @@ class BinaryMixtureFitter(MISTFitter):
 
         for i in tqdm(range(n_iterations)):
             logging.debug(f"\n=== EM Iteration {i+1}/{n_iterations} ===")
-            R = self.E_step(theta)
+            R, _ = self.E_step(theta)
             self.M_step(R)
 
             # sanity check: NaN weights
@@ -306,7 +310,7 @@ class BinaryMixtureFitter(MISTFitter):
             raise RuntimeError("Error: fit() must be run first.")
         
         # Compute responsibilities
-        R = self.E_step(self.theta)   # shape = (N, 3)
+        R, _ = self.E_step(self.theta)   # shape = (N, 3)
         
         # Find the index of the star in your dataset
         df = self.data
@@ -329,7 +333,7 @@ class BinaryMixtureFitter(MISTFitter):
         if self.theta is None:
             raise RuntimeError("Error: fit() must be run first.")
     
-        R = self.E_step(self.theta)
+        R, _ = self.E_step(self.theta)
         if self.use_field:
             labels = ["Single", "Binary", "Field"]
             colors = [R[:,0], R[:,1], R[:,2]]
@@ -357,3 +361,25 @@ class BinaryMixtureFitter(MISTFitter):
         plt.show()
 
         return fig, axes
+    
+    def plot_qs(self, bins=20):
+        if self.theta is None:
+            raise RuntimeError("Error: fit() must be run first.")
+        
+        # Responsibilities + best q per star
+        R, qs = self.E_step(self.theta)
+
+        # Filter potential NaNs (if any stars failed to match a binary iso)
+        qs = qs[np.isfinite(qs)]
+
+        fig, ax = plt.subplots(1, 1, figsize=(8, 5))
+        ax.hist(qs, bins=bins, alpha=0.75)
+
+        ax.set_xlabel("Best-fit binary mass ratio q")
+        ax.set_ylabel("Number of stars")
+        ax.set_title("Distribution of Most Likely q per Star")
+
+        plt.tight_layout()
+        plt.show()
+        return fig, ax
+
