@@ -12,7 +12,7 @@ from isochrones.populations import StarFormationHistory, StarPopulation
 class IsochroneSynthesizer:
     def __init__(
         self,
-        mass_bounds: Tuple[float] = (0.1, 12.0),
+        mass_bounds: Tuple[float] = (0.1, 15.0),
         age: float = 1.1e8,
         feh: float = 0.0, 
         AV: float = 0.12,

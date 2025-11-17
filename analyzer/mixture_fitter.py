@@ -18,8 +18,8 @@ class BinaryMixtureFitter(MISTFitter):
     Where likelihoods are computed in CMD space using KD-tree matching.
     """
     def __init__(self, data, fB=0.2, mass_ratio=1.0,
-                 q_range=(0.1, 1), field_weight=0.0,
-                 use_field: bool = True, tau: float = 1.5, **kwargs):
+                 q_range=(0.1, 1.1), field_weight=0.0,
+                 use_field: bool = True, tau: float = 1.7, **kwargs):
 
         super().__init__(data, **kwargs)
 
@@ -57,7 +57,6 @@ class BinaryMixtureFitter(MISTFitter):
         else:
             self.sM = np.full(len(self.data), self._sG_med)
 
-        # BP and RP uncertainties (each with fallback)
         if "BP_mag_unc" in self.data:
             sBP = np.nan_to_num(self.data["BP_mag_unc"].to_numpy(), nan=self._sBP_med)
         else:
@@ -194,19 +193,13 @@ class BinaryMixtureFitter(MISTFitter):
         # Compute isochrone residuals per star
         rC, rM, sC, sM = self._compute_residuals(theta)
 
-        # asymmetric weights (tune lambdas)
-        λC = 1.0
-        λM = 1.0
-        wC = 1.0 + λC * (rC < 0)
-        wM = 1.0 + λM * (rM < 0)
-
         # --- Intrinsic scatter added here ---
         sigmaC_int = 0.15
         sigmaM_int = 0.30
         sC_eff = np.sqrt(sC**2 + sigmaC_int**2)
         sM_eff = np.sqrt(sM**2 + sigmaM_int**2)
 
-        chi2 = wC * (rC / sC_eff)**2 + wM * (rM / sM_eff)**2
+        chi2 = (rC / sC_eff)**2 + (rM / sM_eff)**2
 
         # Per-star log-likelihoods (no sum!)
         lnL = -0.5 * chi2
@@ -373,11 +366,11 @@ class BinaryMixtureFitter(MISTFitter):
         qs = qs[np.isfinite(qs)]
 
         fig, ax = plt.subplots(1, 1, figsize=(8, 5))
-        ax.hist(qs, bins=bins, alpha=0.75)
+        ax.hist(qs, bins=bins, alpha=0.75, edgecolor='black')
 
-        ax.set_xlabel("Best-fit binary mass ratio q")
+        ax.set_xlabel("Best-fit binary mass ratio $q$")
         ax.set_ylabel("Number of stars")
-        ax.set_title("Distribution of Most Likely q per Star")
+        ax.set_title("Distribution of Most Likely Mass Ratio Per Star")
 
         plt.tight_layout()
         plt.show()
