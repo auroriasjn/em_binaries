@@ -1,8 +1,9 @@
 import numpy as np
-from analyzer import BinaryMixtureFitter
-
 
 def bootstrap_mixture_weights(fitter, theta, n_boot=200, random_state=None):
+    # Local import necessary here
+    from analyzer import BinaryMixtureFitter
+
     rng = np.random.default_rng(random_state)
     weights = []
 

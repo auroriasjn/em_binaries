@@ -56,7 +56,7 @@ class IsochroneSynthesizer:
 
         return data
     
-    def plot_hr_diagram(self, n: int=1000, show: bool=True):
+    def plot_hr_diagram(self, n: int=1000, show: bool=True, dark: bool=True):
         data = self.generate(n)
 
         fig, ax = plt.subplots(figsize=(8, 10))
@@ -64,7 +64,7 @@ class IsochroneSynthesizer:
             data['phot_bp_rp'],
             data['G_mag'],
             s=1,
-            c='blue',
+            c=('blue' if not dark else 'yellow'),
             alpha=0.5
         )
         ax.set_xlabel('BP - RP Color Index')

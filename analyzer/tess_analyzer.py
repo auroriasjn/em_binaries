@@ -132,10 +132,10 @@ class TESSAnalyzer:
         return results
     
     # --- PLOTTING ---
-    def plot_lightcurve(self, time: np.ndarray, flux: np.ndarray, source_id: str = None):
+    def plot_lightcurve(self, time: np.ndarray, flux: np.ndarray, source_id: str = None, dark: bool = True):
         """Plot an individual lightcurve."""
         fig, ax = plt.subplots(figsize=(8, 4))
-        ax.plot(time, flux, lw=0.7, color="black")
+        ax.plot(time, flux, lw=0.7, color=("black" if not dark else "white"))
         ax.set_xlabel("Time [days]")
         ax.set_ylabel("Normalized Flux")
         title = f"TESS Lightcurve" + (f" - {source_id}" if source_id else "")
@@ -157,12 +157,12 @@ class TESSAnalyzer:
 
         return fig, ax
     
-    def plot_bls_periodogram(self, bls_result, source_id=None):
+    def plot_bls_periodogram(self, bls_result, source_id=None, dark: bool = True):
         period = bls_result["period_grid"]
         power = bls_result["power_array"]
 
         fig, ax = plt.subplots(figsize=(8, 4))
-        ax.plot(period, power, color="black", lw=1.0)
+        ax.plot(period, power, color=("black" if not dark else "white"), lw=1.0)
         ax.set_xscale("log")
         ax.set_xlabel("Period [days]")
         ax.set_ylabel("BLS Power")
@@ -172,7 +172,7 @@ class TESSAnalyzer:
 
         return fig, ax
     
-    def plot_periodograms(self, time, flux, source_id=None):
+    def plot_periodograms(self, time, flux, source_id=None, dark=True):
         # LS periodogram
         p_ls, freq, ls_power = self.run_ls(time, flux)
 
@@ -190,7 +190,7 @@ class TESSAnalyzer:
         axes[0].set_title(f"{source_id} – LS Periodogram" if source_id else "LS Periodogram")
 
         # BLS
-        axes[1].plot(bls["period_grid"], bls["power_array"], color="black")
+        axes[1].plot(bls["period_grid"], bls["power_array"], color=("black" if not dark else "white"))
         axes[1].set_xscale("log")
         axes[1].set_xlabel("Period [days]")
         axes[1].set_ylabel("BLS Power")
@@ -226,10 +226,17 @@ class TESSAnalyzer:
 
         plt.show()
 
-    def plot_phase_folded(self, phase: np.ndarray, flux: np.ndarray, source_id: str = None, period: float = None):
+    def plot_phase_folded(
+        self, 
+        phase: np.ndarray, 
+        flux: np.ndarray, 
+        source_id: str = None, 
+        period: float = None, 
+        dark: bool = True
+    ):
         """Plot a phase-folded lightcurve."""
         fig, ax = plt.subplots(figsize=(8, 4))
-        ax.scatter(phase, flux, s=6, color="black", alpha=0.6)
+        ax.scatter(phase, flux, s=6, color=("black" if not dark else "white"), alpha=0.6)
         ax.set_xlabel("Orbital Phase")
         ax.set_ylabel("Normalized Flux")
         title = "Phase-Folded Lightcurve"

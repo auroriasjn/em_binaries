@@ -355,24 +355,46 @@ class BinaryMixtureFitter(MISTFitter):
 
         return fig, axes
     
-    def plot_qs(self, bins=20):
+    def plot_qs(self, bins=20, prob_threshold=None):
+        """
+        Plot histogram of best-fit binary mass ratios (q).
+        
+        Parameters:
+            bins (int): Number of histogram bins.
+            prob_threshold (float or None): If provided, only include stars with
+                P(binary) > prob_threshold. Default is None (include all stars).
+        """
         if self.theta is None:
             raise RuntimeError("Error: fit() must be run first.")
-        
+
         # Responsibilities + best q per star
         R, qs = self.E_step(self.theta)
+        
+        # Remove NaNs (failed binary matches)
+        valid = np.isfinite(qs)
+        qs = qs[valid]
+        R = R[valid, :]
 
-        # Filter potential NaNs (if any stars failed to match a binary iso)
-        qs = qs[np.isfinite(qs)]
+        # Apply binary probability threshold filter (if set)
+        if prob_threshold is not None:
+            binary_probs = R[:, 1]
+            mask = binary_probs > prob_threshold
+            qs = qs[mask]
 
         fig, ax = plt.subplots(1, 1, figsize=(8, 5))
         ax.hist(qs, bins=bins, alpha=0.75, edgecolor='black')
 
         ax.set_xlabel("Best-fit binary mass ratio $q$")
         ax.set_ylabel("Number of stars")
-        ax.set_title("Distribution of Most Likely Mass Ratio Per Star")
+
+        title = "Distribution of Best-Fit Binary Mass Ratios"
+        if prob_threshold is not None:
+            title += f" (P(binary) > {prob_threshold:.2f})"
+        ax.set_title(title)
 
         plt.tight_layout()
         plt.show()
+
         return fig, ax
+
 

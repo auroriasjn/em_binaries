@@ -303,6 +303,7 @@ class MISTFitter:
         chi2_cutoff,
         max_curves=50,
         seed=42,
+        dark=True,
         show=True
     ):
         """
@@ -316,7 +317,7 @@ class MISTFitter:
         ax.scatter(
             self.data['phot_bp_rp'], 
             self.data['G_mag'], 
-            s=2, c='blue', alpha=0.4
+            s=2, c=('blue' if not dark else 'yellow'), alpha=0.4
         )
 
         # plot each good model
@@ -327,7 +328,7 @@ class MISTFitter:
             ax.plot(
                 iso_BP - iso_RP + dC,
                 iso_G + dM,
-                color="red", alpha=0.05, lw=1
+                color=('red' if not dark else 'orange'), alpha=(0.40 if dark else 0.05), lw=1
             )
 
         # highlight best model
@@ -337,7 +338,7 @@ class MISTFitter:
         ax.plot(
             iso_BP - iso_RP + dC,
             iso_G + dM,
-            color="black", lw=2.5, label=f"Best Model ($-\chi^2/2={self.best_chi2:.1f}$)"
+            color=("black" if not dark else 'white'), lw=2.5, label=f"Best Model ($-\chi^2/2={self.best_chi2:.1f}$)"
         )
 
         ax.set_xlabel("BP - RP")
@@ -350,7 +351,7 @@ class MISTFitter:
 
         return fig, ax
     
-    def plot_residuals(self, theta, show: bool=True):
+    def plot_residuals(self, theta, show: bool=True, dark: bool=True):
         rC, rM, _, _ = self._compute_residuals(theta)
 
         fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(14, 6))
@@ -362,7 +363,7 @@ class MISTFitter:
             c='green',
             alpha=0.5
         )
-        ax1.axhline(0, color='black', ls='--')
+        ax1.axhline(0, color=('black' if not dark else 'white'), ls='--')
         ax1.set_xlabel('BP - RP Color Index (corrected)')
         ax1.set_ylabel('Color Residual (Observed - Model)')
         ax1.set_title('Color Residuals')
@@ -374,7 +375,7 @@ class MISTFitter:
             c='purple',
             alpha=0.5
         )
-        ax2.axhline(0, color='black', ls='--')
+        ax2.axhline(0, color=('black' if not dark else 'white'), ls='--')
         ax2.set_xlabel('G Mean Magnitude (corrected)')
         ax2.set_ylabel('Magnitude Residual (Observed - Model)')
         ax2.set_title('Magnitude Residuals')

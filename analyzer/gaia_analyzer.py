@@ -65,13 +65,13 @@ class GaiaAnalyzer:
     def get_data(self) -> pd.DataFrame:
         return self.data
 
-    def plot_hr_diagram(self, show: bool=True):
+    def plot_hr_diagram(self, show: bool=True, dark: bool=True):
         fig, ax = plt.subplots(figsize=(8, 10))
         ax.scatter(
             self.data['phot_bp_rp'],
             self.data['G_mag'],
             s=1,
-            c='blue',
+            c=('blue' if not dark else 'yellow'),
             alpha=0.5
         )
         ax.set_xlabel('BP - RP Color Index')
