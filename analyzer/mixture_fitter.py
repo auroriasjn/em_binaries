@@ -14,7 +14,7 @@ from analyzer import MISTFitter
 class BinaryMixtureFitter(MISTFitter):
     """
     Mixture model:
-        p(x | θ) = π_single * L_single + π_binary * L_binary + π_field * L_field
+        p(x | θ) = π_single * L_single + π_binary * L_binary (+ π_field * L_field) (if chosen)
     Where likelihoods are computed in CMD space using KD-tree matching.
     """
     def __init__(self, data, fB=0.2, mass_ratio=1.0,
@@ -69,8 +69,6 @@ class BinaryMixtureFitter(MISTFitter):
 
         # Color uncertainty
         self.sC = np.sqrt(sBP**2 + sRP**2)
-
-        # clamp to safe values
         self.sC = np.maximum(self.sC, 0.01)
         self.sM = np.maximum(self.sM, 0.01)
 
@@ -224,7 +222,6 @@ class BinaryMixtureFitter(MISTFitter):
         ls = self._single_likelihood(theta)
         lb, q_best = self._binary_likelihood(theta)
 
-        # --- Optional median normalization for scale parity ---
         ls -= np.nanmedian(ls)
         lb -= np.nanmedian(lb)
 
@@ -260,13 +257,13 @@ class BinaryMixtureFitter(MISTFitter):
         if self.use_field:
             alpha = np.array([6.0, 3.0, 1.5])
         else:
-            alpha = np.array([6.0, 3.0])  # only 2 components
+            alpha = np.array([6.0, 3.0])
 
         Nk += (alpha - 1.0)
 
         self.mixture_weights = Nk / Nk.sum()
 
-        # numeric safety
+        # Prevent division by 0!
         eps = 1e-6
         self.mixture_weights = np.clip(self.mixture_weights, eps, 1 - eps)
         self.mixture_weights /= self.mixture_weights.sum()
@@ -303,7 +300,7 @@ class BinaryMixtureFitter(MISTFitter):
             raise RuntimeError("Error: fit() must be run first.")
         
         # Compute responsibilities
-        R, _ = self.E_step(self.theta)   # shape = (N, 3)
+        R, _ = self.E_step(self.theta)
         
         # Find the index of the star in your dataset
         df = self.data
@@ -358,11 +355,6 @@ class BinaryMixtureFitter(MISTFitter):
     def plot_qs(self, bins=20, prob_threshold=None):
         """
         Plot histogram of best-fit binary mass ratios (q).
-        
-        Parameters:
-            bins (int): Number of histogram bins.
-            prob_threshold (float or None): If provided, only include stars with
-                P(binary) > prob_threshold. Default is None (include all stars).
         """
         if self.theta is None:
             raise RuntimeError("Error: fit() must be run first.")
